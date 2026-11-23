@@ -12,7 +12,6 @@ work planned for the hackathon.
 
 from contextlib import contextmanager
 
-import numpy as np
 import torch
 
 from . import rng
@@ -37,7 +36,7 @@ class DeviceTables:
     """World tables moved once to the target device."""
 
     def __init__(self, world: World, device):
-        t = lambda a, dt=torch.int64: torch.as_tensor(np.ascontiguousarray(a), dtype=dt, device=device)
+        t = lambda a, dt=torch.int64: a.to(device=device, dtype=dt).contiguous()
         self.dist = t(world.dist_m)
         self.trav = t(world.travel_s)
         self.trip = t(world.trip_permille)
@@ -52,19 +51,19 @@ def simulate_batched(world: World, plans: dict, scenario_ids, device="cpu",
                      chunk_scenarios: int | None = None, tables: DeviceTables | None = None) -> dict:
     """Simulate every plan in `plans` (from plan_arrays) under every scenario id.
 
-    Returns KPI arrays of shape [K, M] (NumPy int64). Scenarios can be processed
+    Returns KPI tensors of shape [K, M] (int64, on the CPU). Scenarios can be processed
     in chunks to bound memory; chunks are independent, which is also how the
     work will be split across GPUs.
     """
-    scenario_ids = np.asarray(scenario_ids, dtype=np.int64)
+    scenario_ids = torch.as_tensor(scenario_ids, dtype=torch.int64)
     device = torch.device(device)
     tables = tables or DeviceTables(world, device)
     chunk = chunk_scenarios or len(scenario_ids)
     parts = []
     for i in range(0, len(scenario_ids), chunk):
         parts.append(_simulate_chunk(world, plans, scenario_ids[i:i + chunk], device, tables))
-    kpi = {n: np.concatenate([p["kpi"][n] for p in parts], axis=1) for n in KPI_NAMES}
-    state = {n: np.concatenate([p["state"][n] for p in parts], axis=1) for n in parts[0]["state"]}
+    kpi = {n: torch.cat([p["kpi"][n] for p in parts], dim=1) for n in KPI_NAMES}
+    state = {n: torch.cat([p["state"][n] for p in parts], dim=1) for n in parts[0]["state"]}
     return {"kpi": kpi, "state": state}
 
 
@@ -268,9 +267,9 @@ def _simulate_chunk(world, plans, scen, device, tb: DeviceTables) -> dict:
             k["lost"] += req - served
             k["low_battery_steps"] += (soc < min_rent).sum(1)
 
-    to_np = lambda x: x.reshape(K, M, *x.shape[1:]).cpu().numpy()
+    to_cpu = lambda x: x.reshape(K, M, *x.shape[1:]).cpu()
     return {
-        "kpi": {n: to_np(v) for n, v in k.items()},
-        "state": {"cell": to_np(cell), "soc": to_np(soc), "idle": to_np(idle),
-                  "fault": to_np(fault), "busy": to_np(busy)},
+        "kpi": {n: to_cpu(v) for n, v in k.items()},
+        "state": {"cell": to_cpu(cell), "soc": to_cpu(soc), "idle": to_cpu(idle),
+                  "fault": to_cpu(fault), "busy": to_cpu(busy)},
     }

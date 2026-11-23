@@ -1,7 +1,7 @@
-"""NumPy reference simulator: one plan, one scenario, readable control flow.
+"""Reference simulator: one plan, one scenario, readable control flow.
 
-This is the ground truth. The batched PyTorch simulator must reproduce
-its KPIs and final state exactly for the same (plan, scenario) pair.
+This is the ground truth. The batched simulator must reproduce its KPIs
+and final state exactly for the same (plan, scenario) pair.
 
 Vehicle state (int64, per vehicle):
   cell   H3 cell index
@@ -13,12 +13,12 @@ Vehicle state (int64, per vehicle):
 Each step: (1) field operations if a shift is on, (2) rentals.
 """
 
-import numpy as np
+import torch
 
 from . import rng
 from .world import OD_SCALE, World
 
-INF = np.int64(1) << np.int64(62)
+INF = 1 << 62
 KPI_NAMES = ("requests", "served", "lost", "swaps", "repairs", "relocated", "recovered",
              "reloads", "jobs", "op_m", "low_battery_steps")
 
@@ -29,6 +29,7 @@ def _key_unique(values, V, vidx):
 
 def simulate_reference(world: World, plan: dict, m: int) -> dict:
     """Simulate plan (dict of scalar parameters) under scenario id m."""
+    plan = {n: int(v) for n, v in plan.items()}
     C, V, T, S = world.n_cells, world.n_vehicles, world.n_steps, world.step_seconds
     ops, fl = world.ops, world.fleet
     dist, trav = world.dist_m, world.travel_s
@@ -38,13 +39,13 @@ def simulate_reference(world: World, plan: dict, m: int) -> dict:
     min_rent = fl.min_rentable_permille
     t3, t2, t1 = world.fault_thr
 
-    cell = world.init["cell"].copy()
-    soc = world.init["soc"].copy()
-    idle = world.init["idle"].copy()
-    fault = world.init["fault"].copy()
-    busy = world.init["busy"].copy()
-    vidx = np.arange(V, dtype=np.int64)
-    cidx = np.arange(C, dtype=np.int64)
+    cell = world.init["cell"].clone()
+    soc = world.init["soc"].clone()
+    idle = world.init["idle"].clone()
+    fault = world.init["fault"].clone()
+    busy = world.init["busy"].clone()
+    vidx = torch.arange(V)
+    cidx = torch.arange(C)
 
     op_cell, op_free, batteries = world.depot, 0, ops.battery_capacity
     k = dict.fromkeys(KPI_NAMES, 0)
@@ -69,13 +70,13 @@ def simulate_reference(world: World, plan: dict, m: int) -> dict:
                 c2 = free & (fault == 1)
                 c3 = (free & (fault == 0) & ~below_mand & (idle >= plan["idle"])
                       & ~in_centre[cell])
-                cls = np.full(V, 4, dtype=np.int64)
+                cls = torch.full((V,), 4, dtype=torch.int64)
                 cls[c3] = 3
                 cls[c2] = 2
                 cls[c1] = 1
                 cls[c0] = 0
-                key = np.where(cls < 4, _key_unique(cls * plan["pen"] + d_op, V, vidx), INF)
-                p = int(np.argmin(key))
+                key = torch.where(cls < 4, _key_unique(cls * plan["pen"] + d_op, V, vidx), INF)
+                p = int(torch.argmin(key))
                 if key[p] >= INF:
                     op_free = step_end  # nothing to do: wait for the next step
                     break
@@ -87,26 +88,26 @@ def simulate_reference(world: World, plan: dict, m: int) -> dict:
                     if p_cls == 0:
                         elig_q = free & (fault >= 2)
                     else:
-                        elig_q = c3.copy()
+                        elig_q = c3.clone()
                     elig_q[p] = False
                     elig_q &= d_p <= plan["pair_r"]
-                    key_q = np.where(elig_q, _key_unique(d_p, V, vidx), INF)
-                    q = int(np.argmin(key_q))
+                    key_q = torch.where(elig_q, _key_unique(d_p, V, vidx), INF)
+                    q = int(torch.argmin(key_q))
                     has_q = bool(key_q[q] < INF)
                     if p_cls == 0:
                         drop = world.workshop
                     else:
                         avail = (((fault == 0) | (fault == 2)) & (soc >= min_rent) & free)
-                        counts = np.bincount(cell[avail], minlength=C).astype(np.int64)
+                        counts = torch.bincount(cell[avail], minlength=C)
                         if plan["target"] == 0:
-                            key_t = np.where(in_centre, counts * C + cidx, INF)
+                            key_t = torch.where(in_centre, counts * C + cidx, INF)
                         else:
                             deficit = world.forecast_milli[t] - 1000 * counts
-                            key_t = (np.int64(10**9) - deficit) * C + cidx
-                        drop = int(np.argmin(key_t))
+                            key_t = (10**9 - deficit) * C + cidx
+                        drop = int(torch.argmin(key_t))
                     last = int(cell[q]) if has_q else p_cell
                     dur = trav[op_cell * C + p_cell] + ops.pickup_seconds
-                    meters = dist[op_cell * C + p_cell]
+                    meters = int(dist[op_cell * C + p_cell])
                     if has_q:
                         dur += trav[p_cell * C + last] + ops.pickup_seconds
                         meters += dist[p_cell * C + last]
@@ -139,11 +140,11 @@ def simulate_reference(world: World, plan: dict, m: int) -> dict:
 
                 elif p_cls == 1:
                     elig_s = free & (fault == 0) & (soc < plan["opp"]) & (d_p <= plan["opp_r"])
-                    key_s = np.where(elig_s, _key_unique(d_p, V, vidx), INF)
+                    key_s = torch.where(elig_s, _key_unique(d_p, V, vidx), INF)
                     key_s[p] = -1  # the primary vehicle is always served first
-                    order = np.argsort(key_s, kind="stable")
-                    rank = np.empty(V, dtype=np.int64)
-                    rank[order] = np.arange(V)
+                    order = torch.argsort(key_s, stable=True)
+                    rank = torch.empty(V, dtype=torch.int64)
+                    rank[order] = torch.arange(V)
                     sel = elig_s & (rank < batteries)
                     n = int(sel.sum())
                     dur = (trav[op_cell * C + p_cell] + trav[p_cell * C + cell[sel]].sum()
@@ -175,30 +176,30 @@ def simulate_reference(world: World, plan: dict, m: int) -> dict:
         avail = ((fault == 0) | (fault == 2)) & (soc >= min_rent) & (busy <= t)
         u = rng.counter_hash(world.scenario_seed, rng.DEMAND, m, t, cidx)
         thr = world.poisson_thr[variant, t]
-        demand = (u[:, None] >= thr).sum(axis=1).astype(np.int64)
-        cellkey = np.where(avail, cell, C)
+        demand = (u[:, None] >= thr).sum(dim=1)
+        cellkey = torch.where(avail, cell, C)
         key = cellkey * (1001 * V) + (1000 - soc) * V + vidx
-        order = np.argsort(key, kind="stable")
+        order = torch.argsort(key, stable=True)
         scell = cellkey[order]
-        is_start = np.ones(V, dtype=bool)
+        is_start = torch.ones(V, dtype=torch.bool)
         is_start[1:] = scell[1:] != scell[:-1]
-        pos = np.arange(V, dtype=np.int64)
-        seg_start = np.maximum.accumulate(np.where(is_start, pos, 0))
-        rank = np.empty(V, dtype=np.int64)
+        pos = torch.arange(V)
+        seg_start = torch.cummax(torch.where(is_start, pos, 0), dim=0).values
+        rank = torch.empty(V, dtype=torch.int64)
         rank[order] = pos - seg_start
-        demand_ext = np.append(demand, 0)
+        demand_ext = torch.cat([demand, torch.zeros(1, dtype=torch.int64)])
         rented = avail & (rank < demand_ext[cellkey])
 
         u_dest = rng.counter_hash(world.scenario_seed, rng.DEST, m, t, vidx) >> 2
-        dest = np.searchsorted(world.od_flat, cell * OD_SCALE + u_dest, side="right") - cell * C
+        dest = torch.searchsorted(world.od_flat, cell * OD_SCALE + u_dest, right=True) - cell * C
         cons = world.trip_permille[cell * C + dest]
         uf = rng.counter_hash(world.scenario_seed, rng.FAULT, m, t, vidx)
-        lvl = np.where(uf < t3, 3, np.where(uf < t2, 2, np.where(uf < t1, 1, 0)))
+        lvl = torch.where(uf < t3, 3, torch.where(uf < t2, 2, torch.where(uf < t1, 1, 0)))
 
-        soc = np.where(rented, np.maximum(soc - cons, 0), soc)
-        fault = np.where(rented & (lvl > fault), lvl, fault)
-        cell = np.where(rented, dest, cell)
-        idle = np.where(rented, 0, idle + 1)
+        soc = torch.where(rented, torch.clamp(soc - cons, min=0), soc)
+        fault = torch.where(rented & (lvl > fault), lvl, fault)
+        cell = torch.where(rented, dest, cell)
+        idle = torch.where(rented, 0, idle + 1)
 
         served = int(rented.sum())
         req = int(demand.sum())

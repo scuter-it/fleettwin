@@ -6,7 +6,7 @@
 import argparse
 import time
 
-import numpy as np
+import torch
 
 from .config import CityConfig, FleetConfig
 from .kpi import format_table, summarise
@@ -18,7 +18,7 @@ from .world import build_world
 def run_reference(world, plans_list, scenario_ids):
     arrays = plan_arrays(plans_list)
     K, M = len(plans_list), len(scenario_ids)
-    out = {n: np.zeros((K, M), dtype=np.int64) for n in KPI_NAMES}
+    out = {n: torch.zeros((K, M), dtype=torch.int64) for n in KPI_NAMES}
     for k in range(K):
         plan = {n: a[k] for n, a in arrays.items()}
         for j, m in enumerate(scenario_ids):
@@ -41,7 +41,7 @@ def main(argv=None):
 
     world = build_world(CityConfig(radius_rings=args.rings), FleetConfig(n_vehicles=args.vehicles))
     plans_list = plan_grid() if args.plans == "grid" else [BASELINE]
-    scen = np.arange(args.scenarios)
+    scen = torch.arange(args.scenarios)
 
     t0 = time.perf_counter()
     if args.backend == "reference":

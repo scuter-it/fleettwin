@@ -1,4 +1,4 @@
-"""Throughput benchmark: NumPy reference vs batched PyTorch.
+"""Throughput benchmark: reference simulator vs batched simulator.
 
 Examples
     python benchmarks/bench.py --backend reference --plans 36 --scenarios 32
@@ -19,7 +19,7 @@ import platform
 import sys
 import time
 
-import numpy as np
+import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -39,7 +39,6 @@ def bench_reference(world, plans, scen, max_pairs):
 
 
 def bench_torch(world, plans, scen, device, chunk, repeat):
-    import torch
     from fleettwin.sim_batched import DeviceTables, simulate_batched
 
     tables = DeviceTables(world, device)
@@ -60,7 +59,6 @@ def bench_torch(world, plans, scen, device, chunk, repeat):
 def hardware(device):
     info = {"cpu": platform.processor() or platform.machine(), "cpu_count": os.cpu_count()}
     if str(device).startswith("cuda"):
-        import torch
         info["gpu"] = torch.cuda.get_device_name(0)
         info["torch"] = torch.__version__
     return info
@@ -85,7 +83,7 @@ def main():
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
 
     for M in [int(x) for x in args.scenarios.split(",")]:
-        scen = np.arange(M)
+        scen = torch.arange(M)
         if args.backend == "reference":
             secs, pairs = bench_reference(world, plans, scen, args.reference_pairs)
         else:

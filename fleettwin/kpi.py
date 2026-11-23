@@ -1,11 +1,11 @@
 """Reduction of per-(plan, scenario) KPIs to per-plan statistics.
 
-v0.1 runs this step on the host with NumPy. Moving the reductions over
+v0.1 runs this step on the host (CPU tensors). Moving the reductions over
 the scenario axis (means, quantiles) to the device is part of the
 hackathon work.
 """
 
-import numpy as np
+import torch
 
 METRICS = (
     ("moved_per_shift_h", "Vehicles moved / shift h"),
@@ -18,15 +18,16 @@ METRICS = (
 
 
 def derived(kpi: dict, world) -> dict:
-    """Operational metrics, arrays of shape [K, M]."""
+    """Operational metrics, float64 tensors of shape [K, M]."""
+    kpi = {n: v.double() for n, v in kpi.items()}
     sh = max(world.shift_hours, 1e-9)
     moved = kpi["relocated"] + kpi["recovered"]
     interventions = moved + kpi["swaps"] + kpi["repairs"]
     return {
         "moved_per_shift_h": moved / sh,
         "interventions_per_shift_h": interventions / sh,
-        "service_rate": kpi["served"] / np.maximum(kpi["requests"], 1),
-        "lost": kpi["lost"].astype(float),
+        "service_rate": kpi["served"] / torch.clamp(kpi["requests"], min=1),
+        "lost": kpi["lost"],
         "op_km": kpi["op_m"] / 1000.0,
         "low_battery_vh": kpi["low_battery_steps"] * world.step_seconds / 3600.0,
     }
@@ -40,7 +41,7 @@ def summarise(kpi: dict, world, names: list) -> list:
         row = {"plan": name}
         for key, _ in METRICS:
             x = d[key][i]
-            row[key] = (float(x.mean()), float(np.quantile(x, 0.1)), float(np.quantile(x, 0.9)))
+            row[key] = (float(x.mean()), float(torch.quantile(x, 0.1)), float(torch.quantile(x, 0.9)))
         rows.append(row)
     return rows
 

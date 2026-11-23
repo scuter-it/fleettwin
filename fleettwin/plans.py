@@ -8,7 +8,7 @@ each stop), then on-site repairs, then relocation of vehicles idle for
 
 from itertools import product
 
-import numpy as np
+import torch
 
 from .config import Policy, STEP_SECONDS
 
@@ -44,14 +44,14 @@ def tile_plans(plans: list, k: int) -> list:
 
 
 def plan_arrays(plans: list) -> dict:
-    """Per-plan parameters as int64 arrays of length K."""
+    """Per-plan parameters as int64 tensors of length K."""
     to_steps = lambda h: int(round(h * 3600 / STEP_SECONDS))
     return {
-        "mand": np.array([p.swap_mandatory_permille for p in plans], dtype=np.int64),
-        "opp": np.array([p.swap_opportunistic_permille for p in plans], dtype=np.int64),
-        "opp_r": np.array([p.opportunistic_radius_m for p in plans], dtype=np.int64),
-        "idle": np.array([to_steps(p.relocate_idle_hours) for p in plans], dtype=np.int64),
-        "target": np.array([p.relocation_target for p in plans], dtype=np.int64),
-        "pair_r": np.array([p.pair_radius_m for p in plans], dtype=np.int64),
-        "pen": np.array([p.class_penalty_m for p in plans], dtype=np.int64),
+        "mand": torch.tensor([p.swap_mandatory_permille for p in plans], dtype=torch.int64),
+        "opp": torch.tensor([p.swap_opportunistic_permille for p in plans], dtype=torch.int64),
+        "opp_r": torch.tensor([p.opportunistic_radius_m for p in plans], dtype=torch.int64),
+        "idle": torch.tensor([to_steps(p.relocate_idle_hours) for p in plans], dtype=torch.int64),
+        "target": torch.tensor([p.relocation_target for p in plans], dtype=torch.int64),
+        "pair_r": torch.tensor([p.pair_radius_m for p in plans], dtype=torch.int64),
+        "pen": torch.tensor([p.class_penalty_m for p in plans], dtype=torch.int64),
     }

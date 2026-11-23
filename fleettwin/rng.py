@@ -1,4 +1,4 @@
-"""Counter-based random numbers that are bit-identical on NumPy and PyTorch.
+"""Counter-based random numbers that are bit-identical on CPU and GPU.
 
 Each draw is a pure function of (seed, stream, counters...), so any
 (scenario, step, cell or vehicle) can be generated independently, on any
@@ -8,7 +8,7 @@ comparisons less noisy.
 
 All arithmetic stays in int64 without overflow: 32-bit products are split
 into 16-bit halves. The code only uses Python operators, so it runs
-unchanged on numpy.ndarray and torch.Tensor.
+unchanged on Python ints and on torch tensors on any device.
 """
 
 M32 = 0xFFFFFFFF
@@ -43,7 +43,7 @@ def mix32(x):
 def counter_hash(seed, stream, *counters):
     """Uniform integer in [0, 2**32) keyed by seed, stream and counters.
 
-    Counters may be Python ints, NumPy arrays or torch tensors (int64);
+    Counters may be Python ints or int64 torch tensors;
     they broadcast against each other.
     """
     h = mix32((seed & M32) ^ _mul32(stream & M32, 0x9E3779B1))

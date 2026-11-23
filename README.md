@@ -2,7 +2,7 @@
 
 FleetTwin scores operational plans for a shared light-vehicle fleet under demand uncertainty. It simulates K candidate plans against M sampled demand scenarios over a 24-hour horizon and reports, for each plan, the mean and 10th–90th percentiles of operational KPIs.
 
-The simulator is parametric, not learned. The repository contains a readable NumPy reference and a batched PyTorch implementation that must reproduce it exactly. All data is synthetic; nothing here depends on proprietary data or code.
+The simulator is parametric, not learned. The repository contains a readable reference simulator and a batched one that must reproduce it exactly. Both are written in PyTorch and run on CPU or GPU. All data is synthetic; nothing here depends on proprietary data or code.
 
 Status: v0.1, first working version. It has not yet been optimised or run at scale on GPUs.
 
@@ -22,14 +22,14 @@ Demand is Poisson per H3 cell and 15-minute step, with scenario-level demand lev
 ## Design choices for GPU execution
 
 - **State layout.** One integer tensor per attribute, shape `[K*M, V]`: cell, state of charge (per mille), idle steps, fault level, busy-until step.
-- **Counter-based random numbers.** Every draw is a hash of (seed, stream, scenario, step, cell or vehicle). Draws need no stored state, are identical on NumPy and PyTorch, and are shared by all plans for the same scenario (common random numbers).
+- **Counter-based random numbers.** Every draw is a hash of (seed, stream, scenario, step, cell or vehicle). Draws need no stored state, are identical on CPU and GPU, and are shared by all plans for the same scenario (common random numbers).
 - **Integer arithmetic throughout.** Distances in metres, times in seconds, probabilities as thresholds on 32-bit uniforms. The batched result equals the reference bit for bit, so correctness is tested exactly, not to a tolerance.
 - **Independent scenario chunks.** Scenarios are independent and can be processed in chunks. The same split is the basis for distributing work across GPUs.
 
 ## Quick start
 
 ```bash
-pip install -e ".[torch,dev]"
+pip install -e ".[dev]"
 pytest                                   # equivalence and invariant tests
 python -m fleettwin.cli --backend reference --scenarios 16
 python -m fleettwin.cli --backend torch --device cuda --scenarios 1024
@@ -51,8 +51,8 @@ nsys profile -t cuda,nvtx -o fleettwin python benchmarks/bench.py \
 
 | Backend | Hardware | Vehicles | Time per (plan, scenario) |
 | --- | --- | --- | --- |
-| NumPy reference | 1 vCPU, x86_64 | 200 | 22.5 ms |
-| NumPy reference | 1 vCPU, x86_64 | 1,000 | 41.5 ms |
+| Reference (v0.1, NumPy) | 1 vCPU, x86_64 | 200 | 22.5 ms |
+| Reference (v0.1, NumPy) | 1 vCPU, x86_64 | 1,000 | 41.5 ms |
 | PyTorch batched | GPU | 200 | to be measured |
 
 ## Known limitations of v0.1

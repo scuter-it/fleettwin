@@ -1,5 +1,5 @@
-import numpy as np
 import pytest
+import torch
 
 from fleettwin.config import CityConfig, FleetConfig, OpsConfig, Policy
 from fleettwin.plans import BASELINE, plan_arrays, plan_grid
@@ -37,21 +37,32 @@ def reference_grid(world, plans, scenarios):
 
 
 def test_batched_matches_reference(world):
-    torch = pytest.importorskip("torch")
     from fleettwin.sim_batched import simulate_batched
 
-    scenarios = np.array([0, 1, 2, 3, 17, 42])
+    scenarios = torch.tensor([0, 1, 2, 3, 17, 42])
     ref = reference_grid(world, PLANS, scenarios)
     out = simulate_batched(world, plan_arrays(PLANS), scenarios, device="cpu", chunk_scenarios=4)
     for (k, j), r in ref.items():
         for n in KPI_NAMES:
             assert out["kpi"][n][k, j] == r["kpi"][n], (PLANS[k].name, int(scenarios[j]), n)
         for n, v in r["state"].items():
-            np.testing.assert_array_equal(out["state"][n][k, j], v, err_msg=f"{n} k={k} j={j}")
+            assert torch.equal(out["state"][n][k, j], v), f"{n} k={k} j={j}"
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="no CUDA device")
+def test_cpu_and_cuda_match(world):
+    from fleettwin.sim_batched import simulate_batched
+
+    arrays, scenarios = plan_arrays(PLANS), torch.arange(8)
+    cpu = simulate_batched(world, arrays, scenarios, device="cpu")
+    gpu = simulate_batched(world, arrays, scenarios, device="cuda")
+    for part in ("kpi", "state"):
+        for n, v in cpu[part].items():
+            assert torch.equal(v, gpu[part][n]), (part, n)
 
 
 def test_every_task_type_is_exercised(world):
-    ref = reference_grid(world, PLANS, np.arange(6))
+    ref = reference_grid(world, PLANS, torch.arange(6))
     total = {n: sum(r["kpi"][n] for r in ref.values()) for n in KPI_NAMES}
     for n in ("swaps", "repairs", "relocated", "recovered", "reloads"):
         assert total[n] > 0, n
@@ -66,7 +77,7 @@ def test_invariants_and_determinism(world):
     assert k["served"] + k["lost"] == k["requests"]
     assert s["soc"].min() >= 0 and s["soc"].max() <= 1000
     assert s["cell"].min() >= 0 and s["cell"].max() < world.n_cells
-    assert set(np.unique(s["fault"])) <= {0, 1, 2, 3}
+    assert set(torch.unique(s["fault"]).tolist()) <= {0, 1, 2, 3}
 
 
 def test_common_random_numbers_across_plans(world):
