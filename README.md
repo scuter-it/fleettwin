@@ -35,6 +35,17 @@ python -m fleettwin.cli --backend reference --scenarios 16
 python -m fleettwin.cli --backend torch --device cuda --scenarios 1024
 ```
 
+## Docker
+
+The default image uses PyTorch with CUDA 13 and runs on NVIDIA GPUs, including Jetson with JetPack 7. The CPU-only image is smaller.
+
+```bash
+docker build -t fleettwin .
+docker build -t fleettwin --build-arg TORCH_INDEX=https://download.pytorch.org/whl/cpu .   # CPU only
+docker run --rm --gpus all fleettwin python -m pytest -q
+docker run --rm --gpus all fleettwin python -m fleettwin.cli --device cuda --scenarios 1024
+```
+
 ## Benchmarks
 
 ```bash
