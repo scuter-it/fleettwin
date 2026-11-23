@@ -64,7 +64,11 @@ nsys profile -t cuda,nvtx -o fleettwin python benchmarks/bench.py \
 | --- | --- | --- | --- |
 | Reference (v0.1, NumPy) | 1 vCPU, x86_64 | 200 | 22.5 ms |
 | Reference (v0.1, NumPy) | 1 vCPU, x86_64 | 1,000 | 41.5 ms |
-| PyTorch batched | GPU | 200 | to be measured |
+| PyTorch batched, 256 scenarios | Jetson Orin Nano Super, 6-core Arm CPU | 200 | 2.14 ms |
+| PyTorch batched, 256 scenarios | Jetson Orin Nano Super, GPU | 200 | 0.50 ms |
+| PyTorch batched, 1,024 scenarios | Jetson Orin Nano Super, GPU | 200 | 0.49 ms |
+
+Jetson figures: 36 plans, Docker image with PyTorch 2.14.1 and CUDA 13.0 on JetPack 7.2. CPU and GPU give identical KPIs. GPU throughput stops growing at about 2,000 (plan, scenario) pairs per second from 256 scenarios up, because the Python time loop launches many small kernels.
 
 ## Known limitations of v0.1
 
